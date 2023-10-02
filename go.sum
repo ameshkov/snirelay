@@ -1,0 +1,10 @@
+github.com/AdguardTeam/golibs v0.16.2 h1:54286tqaGZl3L13EV1PbaMnGqJkFJdaVtqFpDNEKZi8=
+github.com/AdguardTeam/golibs v0.16.2/go.mod h1:DKhCIXHcUYtBhU8ibTLKh1paUL96n5zhQBlx763sj+U=
+github.com/caarlos0/env/v7 v7.1.0 h1:9lzTF5amyQeWHZzuZeKlCb5FWSUxpG1js43mhbY8ozg=
+github.com/caarlos0/env/v7 v7.1.0/go.mod h1:LPPWniDUq4JaO6Q41vtlyikhMknqymCLBw0eX4dcH1E=
+golang.org/x/crypto v0.7.0 h1:AvwMYaRytfdeVt3u6mLaxYtErKYjxA2OXjJ1HHq6t3A=
+golang.org/x/crypto v0.7.0/go.mod h1:pYwdfH91IfpZVANVyUOhSIPZaFoJGxTFbZhFTx+dXZU=
+golang.org/x/sys v0.10.0 h1:SqMFp9UcQJZa+pmYuAKjd9xq1f0j5rLcDIk0mj4qAsA=
+golang.org/x/sys v0.10.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+src.agwa.name/tlshacks v0.0.0-20220518131152-d2c6f4e2b780 h1:iMW3HbLV3/OuK02FDW8qNC13i5o1uK079MGLH404rnQ=
+src.agwa.name/tlshacks v0.0.0-20220518131152-d2c6f4e2b780/go.mod h1:NT4HI59yJusF5Il4/DlC8F5+mfylE4CbRVwdoEi6MF8=
