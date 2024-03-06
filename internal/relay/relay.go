@@ -102,6 +102,8 @@ func (s *Server) acceptLoop(l net.Listener) (err error) {
 func (s *Server) handleConn(conn net.Conn) (err error) {
 	defer log.OnCloserError(conn, log.DEBUG)
 
+	log.Debug("relay: accepting new connection from %s", conn.RemoteAddr())
+
 	if err = conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
 		return fmt.Errorf("relay: failed to set read deadline: %w", err)
 	}
@@ -110,6 +112,8 @@ func (s *Server) handleConn(conn net.Conn) (err error) {
 	if err != nil {
 		return fmt.Errorf("relay: failed to peek server name: %w", err)
 	}
+
+	log.Debug("relay: server name is %s", serverName)
 
 	if err = conn.SetReadDeadline(time.Time{}); err != nil {
 		return fmt.Errorf("relay: failed to remove read deadline: %w", err)
@@ -125,6 +129,8 @@ func (s *Server) handleConn(conn net.Conn) (err error) {
 		Port: remotePortTLS,
 	}
 
+	log.Debug("relay: connecting to %s", remoteAddr)
+
 	var remoteConn net.Conn
 	remoteConn, err = s.dialer.Dial("tcp", remoteAddr.String())
 	if err != nil {
@@ -137,6 +143,8 @@ func (s *Server) handleConn(conn net.Conn) (err error) {
 
 	var wg sync.WaitGroup
 	wg.Add(2)
+
+	log.Debug("relay: start tunneling %s<->%s", remoteAddr, conn.RemoteAddr())
 
 	var bytesReceived, bytesSent int64
 

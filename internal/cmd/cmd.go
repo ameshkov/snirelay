@@ -19,18 +19,21 @@ func Main() {
 		log.SetLevel(log.DEBUG)
 	}
 
-	f, err := os.Open(envs.SNIMappingCSVPath)
-	check(err)
-
-	r := csv.NewReader(f)
-	records, err := r.ReadAll()
-	check(err)
-
 	resolverCache := map[string][]net.IP{}
-	for _, rec := range records {
-		domain := rec[0]
-		ip := net.ParseIP(rec[1])
-		resolverCache[domain] = []net.IP{ip}
+
+	if envs.SNIMappingCSVPath != "" {
+		f, err := os.Open(envs.SNIMappingCSVPath)
+		check(err)
+
+		r := csv.NewReader(f)
+		records, err := r.ReadAll()
+		check(err)
+
+		for _, rec := range records {
+			domain := rec[0]
+			ip := net.ParseIP(rec[1])
+			resolverCache[domain] = []net.IP{ip}
+		}
 	}
 
 	log.Info("cmd: resolver cache size: %d", len(resolverCache))

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/caarlos0/env/v7"
@@ -11,8 +12,9 @@ import (
 type environments struct {
 	ListenAddr        string     `env:"LISTEN_ADDR,required"`
 	ListenPort        uint16     `env:"LISTEN_PORT,required"`
-	SNIMappingCSVPath string     `env:"SNI_MAPPING_CSV_PATH,required"`
+	SNIMappingCSVPath string     `env:"SNI_MAPPING_CSV_PATH"`
 	LogVerbose        strictBool `env:"VERBOSE" envDefault:"0"`
+	LogFile           string     `env:"LOGFILE"`
 }
 
 // readEnvs reads the configuration defined by the environment variables.  See
@@ -26,6 +28,15 @@ func readEnvs() (envs *environments, err error) {
 
 	if envs.LogVerbose {
 		log.SetLevel(log.DEBUG)
+	}
+
+	if envs.LogFile != "" {
+		f, fErr := os.OpenFile(envs.LogFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+		if fErr != nil {
+			return nil, fErr
+		}
+
+		log.SetOutput(f)
 	}
 
 	return envs, nil

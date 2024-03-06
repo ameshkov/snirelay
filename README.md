@@ -2,14 +2,27 @@
 
 Simple relay server written in Go.
 
+How to build:
+
+```shell
+go build
+```
+
 How to run locally:
+```shell
+LISTEN_ADDR=127.0.0.1 \
+  LISTEN_PORT=8080 \
+  VERBOSE=1 \
+  ./relay
+```
+
+Alternatively, you can supply a list of custom domain<->IP mappings:
 ```shell
 LISTEN_ADDR=127.0.0.1 \
   LISTEN_PORT=8080 \
   SNI_MAPPING_CSV_PATH=sni_mapping.csv \
   VERBOSE=1 \
   ./relay
-
 ```
 
 How to test:
