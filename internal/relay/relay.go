@@ -2,8 +2,6 @@
 package relay
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -12,36 +10,41 @@ import (
 
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
-	"src.agwa.name/tlshacks"
 )
 
 const (
-	// ErrNotTLS is returned when the relay cannot peek the server name.
-	ErrNotTLS = errors.Error("not a TLS handshake")
-
-	// ErrNoServerName is returned when handshake does not contain a server name
-	// extension.
-	ErrNoServerName = errors.Error("no server name extension")
-
 	// readTimeout is the default timeout for a connection read deadline.
-	readTimeout = 10 * time.Second
+	readTimeout = 60 * time.Second
 
 	// connectionTimeout is a timeout for connecting to a remote host.
-	connectionTimeout = 10 * time.Second
+	connectionTimeout = 60 * time.Second
+
+	// remotePortPlain is the port the proxy will be connecting for plain
+	// HTTP connections.
+	remotePortPlain = 80
 
 	// remotePortTLS is the port the proxy will be connecting to for TLS
-	// connection.
+	// connections.
 	remotePortTLS = 443
 )
 
 // Server implements all the relay logic, listens for incoming connections and
 // redirects them to the proper server.
 type Server struct {
-	listenAddr *net.TCPAddr
-	dialer     *net.Dialer
-	resolver   *Resolver
+	started bool
+	wg      *sync.WaitGroup
 
-	listener net.Listener
+	dialer   *net.Dialer
+	resolver *Resolver
+
+	listenAddrPlain *net.TCPAddr
+	listenerPlain   net.Listener
+
+	listenAddrTLS *net.TCPAddr
+	listenerTLS   net.Listener
+
+	// mu protects started and listeners.
+	mu *sync.Mutex
 }
 
 // type check.
@@ -50,33 +53,105 @@ var _ io.Closer = (*Server)(nil)
 // NewServer creates a new instance of *Server.
 func NewServer(
 	listenAddr string,
-	listenPort uint16,
+	listenPort int,
+	listenPortTLS int,
 	resolverCache map[string][]net.IP,
 ) (s *Server, err error) {
-	s = &Server{}
-	s.resolver = NewResolver(resolverCache)
-	s.dialer = &net.Dialer{Timeout: connectionTimeout}
-	s.listenAddr = &net.TCPAddr{
-		IP:   net.ParseIP(listenAddr),
-		Port: int(listenPort),
+	s = &Server{
+		wg:       &sync.WaitGroup{},
+		mu:       &sync.Mutex{},
+		resolver: NewResolver(resolverCache),
+		dialer:   &net.Dialer{Timeout: connectionTimeout},
+	}
+
+	listenIP := net.ParseIP(listenAddr)
+	if listenIP == nil {
+		return nil, fmt.Errorf("invalid listen IP: %s", listenAddr)
+	}
+
+	s.listenAddrPlain = &net.TCPAddr{
+		IP:   listenIP,
+		Port: listenPort,
+	}
+
+	s.listenAddrTLS = &net.TCPAddr{
+		IP:   listenIP,
+		Port: listenPortTLS,
 	}
 
 	return s, nil
 }
 
-// Serve starts the listener and accepts incoming connections. This method is
-// synchronous, it returns an error when the server is closed.
-func (s *Server) Serve() (err error) {
-	s.listener, err = net.ListenTCP("tcp", s.listenAddr)
-	if err != nil {
-		return fmt.Errorf("failed to server: %w", err)
+// AddrTLS returns the address where the server listens for TLS traffic.
+func (s *Server) AddrTLS() (addr net.Addr) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.started {
+		return nil
 	}
 
-	return s.acceptLoop(s.listener)
+	return s.listenerTLS.Addr()
 }
 
-// acceptLoop runs the infinite accept loop
-func (s *Server) acceptLoop(l net.Listener) (err error) {
+// AddrPlain returns the address where the server listens for plain traffic.
+func (s *Server) AddrPlain() (addr net.Addr) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.started {
+		return nil
+	}
+
+	return s.listenerPlain.Addr()
+}
+
+// Start starts the server.
+func (s *Server) Start() (err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	log.Info("relay: starting")
+
+	if s.started {
+		return fmt.Errorf("server is already started")
+	}
+
+	s.listenerPlain, err = net.ListenTCP("tcp", s.listenAddrPlain)
+	if err != nil {
+		return fmt.Errorf("failed to serve plain HTTP: %w", err)
+	}
+
+	s.listenerTLS, err = net.ListenTCP("tcp", s.listenAddrTLS)
+	if err != nil {
+		return fmt.Errorf("failed to serve TLS: %w", err)
+	}
+
+	s.wg.Add(2)
+
+	go func() {
+		defer s.wg.Done()
+
+		// TODO(ameshkov): Handle error here.
+		_ = s.acceptLoop(s.listenerPlain, true)
+	}()
+
+	go func() {
+		defer s.wg.Done()
+
+		// TODO(ameshkov): Handle error here.
+		_ = s.acceptLoop(s.listenerTLS, false)
+	}()
+
+	s.started = true
+
+	log.Info("relay: started")
+
+	return nil
+}
+
+// acceptLoop runs the infinite accept loop for TLS or HTTP traffic.
+func (s *Server) acceptLoop(l net.Listener, plainHTTP bool) (err error) {
 	for {
 		var conn net.Conn
 		conn, err = l.Accept()
@@ -89,7 +164,7 @@ func (s *Server) acceptLoop(l net.Listener) (err error) {
 
 		if err == nil {
 			go func() {
-				hErr := s.handleConn(conn)
+				hErr := s.handleConn(conn, plainHTTP)
 				if hErr != nil {
 					log.Debug("failed to handle conn: %v", hErr)
 				}
@@ -99,7 +174,7 @@ func (s *Server) acceptLoop(l net.Listener) (err error) {
 }
 
 // handleConn handles the network connection, peeks SNI and tunnels traffic.
-func (s *Server) handleConn(conn net.Conn) (err error) {
+func (s *Server) handleConn(conn net.Conn, plainHTTP bool) (err error) {
 	defer log.OnCloserError(conn, log.DEBUG)
 
 	log.Debug("relay: accepting new connection from %s", conn.RemoteAddr())
@@ -108,7 +183,7 @@ func (s *Server) handleConn(conn net.Conn) (err error) {
 		return fmt.Errorf("relay: failed to set read deadline: %w", err)
 	}
 
-	serverName, clientReader, err := peekServerName(conn)
+	serverName, clientReader, err := peekServerName(conn, plainHTTP)
 	if err != nil {
 		return fmt.Errorf("relay: failed to peek server name: %w", err)
 	}
@@ -124,9 +199,14 @@ func (s *Server) handleConn(conn net.Conn) (err error) {
 		return fmt.Errorf("relay: failed to resolve %s: %w", serverName, err)
 	}
 
+	remotePort := remotePortTLS
+	if plainHTTP {
+		remotePort = remotePortPlain
+	}
+
 	remoteAddr := &net.TCPAddr{
 		IP:   ips[0],
-		Port: remotePortTLS,
+		Port: remotePort,
 	}
 
 	log.Debug("relay: connecting to %s", remoteAddr)
@@ -204,49 +284,25 @@ func (s *Server) tunnel(dst net.Conn, src io.Reader) (written int64) {
 	return written
 }
 
-// peekServerName peeks on the first bytes from the reader and tries to parse
-// the remote server name.
-func peekServerName(reader io.Reader) (serverName string, newReader io.Reader, err error) {
-	peekedBytes := new(bytes.Buffer)
-	r := io.TeeReader(reader, peekedBytes)
-
-	// TODO(ameshkov): use sync.Pool here.
-	buf := make([]byte, 2048)
-	var bytesRead int
-	bytesRead, err = io.ReadAtLeast(r, buf, 5)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to read ClientHello: %w", err)
-	}
-
-	if buf[0] != 0x16 {
-		return "", nil, ErrNotTLS
-	}
-
-	// Length of the handshake message.
-	length := int(binary.BigEndian.Uint16(buf[3:5]))
-	toRead := length + 5 - bytesRead
-	if toRead > 0 {
-		_, err = io.ReadAtLeast(r, buf[bytesRead:], toRead)
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to read the handshake bytes: %w", err)
-		}
-	}
-
-	clientHello := tlshacks.UnmarshalClientHello(buf[5 : length+5])
-	if clientHello == nil {
-		return "", nil, ErrNotTLS
-	}
-
-	if clientHello.Info.ServerName == nil {
-		return "", nil, ErrNoServerName
-	}
-
-	return *clientHello.Info.ServerName, io.MultiReader(peekedBytes, reader), err
-}
-
 // Close implements the io.Closer interface for *Server.
 func (s *Server) Close() (err error) {
-	// TODO(ameshkov): wait until all connections are processed.
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	return s.listener.Close()
+	log.Info("relay: closing")
+
+	if !s.started {
+		return nil
+	}
+
+	plainErr := s.listenerPlain.Close()
+	tlsErr := s.listenerTLS.Close()
+
+	log.Info("relay: waiting until connections stop processing")
+
+	s.wg.Wait()
+
+	log.Info("relay: closed")
+
+	return errors.Join(plainErr, tlsErr)
 }

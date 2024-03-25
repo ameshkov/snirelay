@@ -50,6 +50,8 @@ func (h *signalHandler) handle() (status int) {
 // success and [statusError] on error.
 func (h *signalHandler) shutdown() (status int) {
 	log.Info("sighdlr: shutting down services")
+	status = statusSuccess
+
 	for i, service := range h.services {
 		err := service.Close()
 		if err != nil {

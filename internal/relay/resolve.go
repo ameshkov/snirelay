@@ -16,11 +16,17 @@ type Resolver struct {
 
 // NewResolver creates a new *Resolver instance.
 func NewResolver(resolverCache map[string][]net.IP) (r *Resolver) {
-	return &Resolver{
+	r = &Resolver{
 		res:     &net.Resolver{},
 		cache:   resolverCache,
 		cacheMu: &sync.Mutex{},
 	}
+
+	if r.cache == nil {
+		r.cache = map[string][]net.IP{}
+	}
+
+	return r
 }
 
 // LookupHost looks up the specified hostname.

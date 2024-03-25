@@ -3,26 +3,51 @@ package cmd
 
 import (
 	"encoding/csv"
+	"fmt"
 	"net"
 	"os"
+	"strconv"
+	"strings"
 
 	"bit.int.agrd.dev/relay/internal/relay"
+	"bit.int.agrd.dev/relay/internal/version"
+	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
+	goFlags "github.com/jessevdk/go-flags"
 )
 
 // Main is the entry point of the program.
 func Main() {
-	envs, err := readEnvs()
-	check(err)
+	if len(os.Args) == 2 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Printf("snirelay version: %s\n", version.Version())
 
-	if envs.LogVerbose {
+		os.Exit(0)
+	}
+
+	o, err := parseOptions()
+	var flagErr *goFlags.Error
+	if errors.As(err, &flagErr) && flagErr.Type == goFlags.ErrHelp {
+		// This is a special case when we exit process here as we received
+		// --help.
+		os.Exit(0)
+	}
+
+	if err != nil {
+		log.Error("cmd: failed to parse args: %v", err)
+
+		os.Exit(1)
+	}
+
+	if o.Verbose {
 		log.SetLevel(log.DEBUG)
 	}
 
+	log.Info("cmd: snirelay configuration:\n%s", o)
+
 	resolverCache := map[string][]net.IP{}
 
-	if envs.SNIMappingCSVPath != "" {
-		f, err := os.Open(envs.SNIMappingCSVPath)
+	if o.SNIMappingsPath != "" {
+		f, err := os.Open(o.SNIMappingsPath)
 		check(err)
 
 		r := csv.NewReader(f)
@@ -36,16 +61,36 @@ func Main() {
 		}
 	}
 
-	log.Info("cmd: resolver cache size: %d", len(resolverCache))
-	log.Info("cmd: starting relay on %s:%d", envs.ListenAddr, envs.ListenPort)
+	ports := strings.Split(o.Ports, ":")
+	if len(ports) != 2 {
+		log.Error("cmd: invalid ports: %s", o.Ports)
 
-	s, err := relay.NewServer(envs.ListenAddr, envs.ListenPort, resolverCache)
+		os.Exit(1)
+	}
+
+	plainPort, err := strconv.Atoi(ports[0])
+	if err != nil {
+		log.Error("cmd: failed to parse plain port: %v", err)
+
+		os.Exit(1)
+	}
+
+	tlsPort, err := strconv.Atoi(ports[1])
+	if err != nil {
+		log.Error("cmd: failed to parse TLS port: %v", err)
+
+		os.Exit(1)
+	}
+
+	log.Info("cmd: resolver cache size: %d", len(resolverCache))
+	log.Info("cmd: listening for HTTP requests on %s:%d", o.ListenAddr, plainPort)
+	log.Info("cmd: listening for TLS connections on %s:%d", o.ListenAddr, tlsPort)
+
+	s, err := relay.NewServer(o.ListenAddr, plainPort, tlsPort, resolverCache)
 	check(err)
 
-	go func() {
-		err = s.Serve()
-		log.Info("cmd: finished serving due to %v", err)
-	}()
+	err = s.Start()
+	check(err)
 
 	sigHandler := newSignalHandler(s)
 	os.Exit(sigHandler.handle())

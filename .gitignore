@@ -3,4 +3,5 @@
 /.vscode
 /build
 /relay
+/snirelay
 /sni_mapping.csv
