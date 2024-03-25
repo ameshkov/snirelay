@@ -3,11 +3,10 @@ package cmd
 import (
 	"os"
 	"os/signal"
+	"syscall"
 
 	"bit.int.agrd.dev/relay/internal/relay"
-
 	"github.com/AdguardTeam/golibs/log"
-	"golang.org/x/sys/unix"
 )
 
 // signalHandler processes incoming signals and shuts services down.
@@ -35,9 +34,8 @@ func (h *signalHandler) handle() (status int) {
 
 		switch sig {
 		case
-			unix.SIGINT,
-			unix.SIGQUIT,
-			unix.SIGTERM:
+			syscall.SIGINT,
+			syscall.SIGTERM:
 			return h.shutdown()
 		}
 	}
@@ -72,7 +70,7 @@ func newSignalHandler(svcs ...*relay.Server) (h signalHandler) {
 		services: svcs,
 	}
 
-	signal.Notify(h.signal, unix.SIGINT, unix.SIGQUIT, unix.SIGTERM)
+	signal.Notify(h.signal, syscall.SIGINT, syscall.SIGTERM)
 
 	return h
 }
