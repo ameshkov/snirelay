@@ -46,8 +46,8 @@ The docker image [is available][dockerregistry]. `snirelay` listens to the
 ports `8080` and `8443` inside the container, so you don't have to specify the
 listen address and ports, other arguments are available.
 
-Tunnel server: run `snirelay` as a background service in server mode and
-expose on the host's ports `80` and `443` (tcp):
+Run `snirelay` as a background service in server mode and expose on the host's
+ports `80` and `443` (tcp):
 
 ```shell
 docker run -d --name snirelay \
