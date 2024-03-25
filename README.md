@@ -65,13 +65,14 @@ Usage:
   snirelay [OPTIONS]
 
 Application Options:
-  -l, --listen=<IP>                    Address the tool will be listening to (required).
-  -p, --ports=<PLAIN_PORT:TLS_PORT>    Port for accepting plain HTTP (required).
-      --sni-mappings-path=             Path to the file with SNI mappings (optional).
-  -v, --verbose                        Verbose output (optional).
+  -l, --listen=<IP>                                         Address the tool will be listening to (required).
+  -p, --ports=<PLAIN_PORT:TLS_PORT>                         Port for accepting plain HTTP (required).
+      --proxy=[protocol://username:password@]host[:port]    Proxy URL (optional).
+      --sni-mappings-path=                                  Path to the file with SNI mappings (optional).
+  -v, --verbose                                             Verbose output (optional).
 
 Help Options:
-  -h, --help                           Show this help message
+  -h, --help                                                Show this help message
 
 ```
 

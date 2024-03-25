@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -82,11 +83,21 @@ func Main() {
 		os.Exit(1)
 	}
 
+	var proxyURL *url.URL
+	if o.ProxyURL != "" {
+		proxyURL, err = url.Parse(o.ProxyURL)
+		if err != nil {
+			log.Error("cmd: invalid proxy URL: %v", err)
+
+			os.Exit(1)
+		}
+	}
+
 	log.Info("cmd: resolver cache size: %d", len(resolverCache))
 	log.Info("cmd: listening for HTTP requests on %s:%d", o.ListenAddr, plainPort)
 	log.Info("cmd: listening for TLS connections on %s:%d", o.ListenAddr, tlsPort)
 
-	s, err := relay.NewServer(o.ListenAddr, plainPort, tlsPort, resolverCache)
+	s, err := relay.NewServer(o.ListenAddr, plainPort, tlsPort, proxyURL, resolverCache)
 	check(err)
 
 	err = s.Start()

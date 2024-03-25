@@ -5,8 +5,13 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"sync"
 	"time"
+
+	"github.com/AdguardTeam/golibs/netutil"
+
+	"golang.org/x/net/proxy"
 
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
@@ -15,9 +20,6 @@ import (
 const (
 	// readTimeout is the default timeout for a connection read deadline.
 	readTimeout = 60 * time.Second
-
-	// connectionTimeout is a timeout for connecting to a remote host.
-	connectionTimeout = 60 * time.Second
 
 	// remotePortPlain is the port the proxy will be connecting for plain
 	// HTTP connections.
@@ -34,8 +36,8 @@ type Server struct {
 	started bool
 	wg      *sync.WaitGroup
 
-	dialer   *net.Dialer
-	resolver *Resolver
+	dialer        proxy.Dialer
+	resolverCache map[string][]net.IP
 
 	listenAddrPlain *net.TCPAddr
 	listenerPlain   net.Listener
@@ -55,13 +57,22 @@ func NewServer(
 	listenAddr string,
 	listenPort int,
 	listenPortTLS int,
+	proxyURL *url.URL,
 	resolverCache map[string][]net.IP,
 ) (s *Server, err error) {
 	s = &Server{
-		wg:       &sync.WaitGroup{},
-		mu:       &sync.Mutex{},
-		resolver: NewResolver(resolverCache),
-		dialer:   &net.Dialer{Timeout: connectionTimeout},
+		wg:            &sync.WaitGroup{},
+		mu:            &sync.Mutex{},
+		resolverCache: resolverCache,
+	}
+
+	s.dialer = proxy.Direct
+	if proxyURL != nil {
+		s.dialer, err = proxy.FromURL(proxyURL, s.dialer)
+
+		if err != nil {
+			return nil, fmt.Errorf("invalid proxy: %w", err)
+		}
 	}
 
 	listenIP := net.ParseIP(listenAddr)
@@ -173,6 +184,24 @@ func (s *Server) acceptLoop(l net.Listener, plainHTTP bool) (err error) {
 	}
 }
 
+// getRemoteAddr checks if there is already a mapping for the specified server
+// name and returns the IP address if so.  Returns the same server name when
+// there's no mapping.  Appends the correct port depending on what protocol is
+// in use.
+func (s *Server) getRemoteAddr(serverName string, plainHTTP bool) (remoteAddr string) {
+	remoteAddr = serverName
+
+	if v, ok := s.resolverCache[serverName]; ok {
+		remoteAddr = v[0].String()
+	}
+
+	if plainHTTP {
+		return netutil.JoinHostPort(remoteAddr, remotePortPlain)
+	}
+
+	return netutil.JoinHostPort(remoteAddr, remotePortTLS)
+}
+
 // handleConn handles the network connection, peeks SNI and tunnels traffic.
 func (s *Server) handleConn(conn net.Conn, plainHTTP bool) (err error) {
 	defer log.OnCloserError(conn, log.DEBUG)
@@ -194,25 +223,11 @@ func (s *Server) handleConn(conn net.Conn, plainHTTP bool) (err error) {
 		return fmt.Errorf("relay: failed to remove read deadline: %w", err)
 	}
 
-	var ips []net.IP
-	if ips, err = s.resolver.LookupHost(serverName); err != nil {
-		return fmt.Errorf("relay: failed to resolve %s: %w", serverName, err)
-	}
-
-	remotePort := remotePortTLS
-	if plainHTTP {
-		remotePort = remotePortPlain
-	}
-
-	remoteAddr := &net.TCPAddr{
-		IP:   ips[0],
-		Port: remotePort,
-	}
-
+	remoteAddr := s.getRemoteAddr(serverName, plainHTTP)
 	log.Debug("relay: connecting to %s", remoteAddr)
 
 	var remoteConn net.Conn
-	remoteConn, err = s.dialer.Dial("tcp", remoteAddr.String())
+	remoteConn, err = s.dialer.Dial("tcp", remoteAddr)
 	if err != nil {
 		return fmt.Errorf("relay: failed to connect to %s: %w", remoteAddr, err)
 	}

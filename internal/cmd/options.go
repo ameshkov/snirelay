@@ -18,6 +18,9 @@ type Options struct {
 	// plainPort:tlsPort
 	Ports string `yaml:"ports" short:"p" long:"ports" description:"Port for accepting plain HTTP (required)." value-name:"<PLAIN_PORT:TLS_PORT>" required:"true"`
 
+	// ProxyURL is the URL of an upstream proxy.
+	ProxyURL string `yaml:"proxy" long:"proxy" description:"Proxy URL (optional)." value-name:"[protocol://username:password@]host[:port]"`
+
 	// SNIMappingsPath is a path to the file with SNI mappings.
 	SNIMappingsPath string `yaml:"sni-mappings-path" long:"sni-mappings-path" description:"Path to the file with SNI mappings (optional)."`
 
