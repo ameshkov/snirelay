@@ -4,9 +4,10 @@ Simple SNI relay server written in Go.
 
 What it does:
 
-1. Listens for incoming HTTP or HTTPS connections.
-2. Parses the hostname from the HTTP request or TLS ClientHello.
-3. Proxies the traffic further to that hostname.
+1. Provides a DNS server that can re-route domains to the SNI relay server.
+2. Listens for incoming HTTP or HTTPS connections.
+3. Parses the hostname from the HTTP request or TLS ClientHello.
+4. Proxies the traffic further to that hostname.
 
 Why would you need it? For instance, if you operate a DNS server, and you want
 to relay some domains to an intermediate server (effectively, change your IP
@@ -20,25 +21,63 @@ make
 
 ### How to run it locally
 
+See the [`config.yaml.dist`][configyaml] for more information on what can be
+configured. In normal environment you want to change ports there.
+
 ```shell
-./snirelay -l 127.0.0.1 -p 80:443
+./snirelay -c config.yaml
 
 ```
 
-Alternatively, you can supply a list of custom domain<->IP mappings:
-
-```shell
-./snirelay -l 127.0.0.1 -p 80:443 --sni-mappings-path=sni_mapping.csv
-
-```
+[configyaml]: ./config.yaml.dist
 
 ### How to test
 
+Note that instructions here use [dnslookup][dnslookup] and [gocurl][gocurl].
+
+#### DNS queries
+
+Plain DNS:
+
 ```shell
-# Simple connect via relay:
-gocurl --connect-to="example.org:443:127.0.0.1:80" -I https://example.org/
+# IPv4 will be redirected to 127.0.0.1.
+dnslookup www.google.com 127.0.0.1:5353
+
+# IPv6 will be redirected to ::.
+RRTYPE=AAAA dnslookup www.google.com 127.0.0.1:5353
+
+# HTTPS will be suppressed.
+RRTYPE=HTTPS dnslookup www.google.com 127.0.0.1:5353
+```
+
+Encrypted DNS:
+
+```shell
+# DNS-over-TLS.
+VERIFY=0 dnslookup www.google.com tls://127.0.0.1:8853
+
+# DNS-over-QUIC.
+VERIFY=0 dnslookup www.google.com quic://127.0.0.1:8853
+
+# DNS-over-HTTPS.
+VERIFY=0 dnslookup www.google.com https://127.0.0.1:8443/dns-query
 
 ```
+
+#### SNI relay
+
+```shell
+# Relay for plain HTTP:
+gocurl --connect-to="example.org:443:127.0.0.1:9080" -I http://example.org/
+
+# Relay for HTTPS:
+gocurl --connect-to="example.org:443:127.0.0.1:9443" -I https://example.org/
+
+```
+
+[dnslookup]: https://github.com/ameshkov/dnslookup
+
+[gocurl]: https://github.com/ameshkov/gocurl
 
 ## Docker
 

@@ -85,7 +85,7 @@ func (f *File) ToDNSConfig() (dnsCfg *dnssrv.Config, err error) {
 	}
 
 	listenIP := net.ParseIP(f.DNS.ListenAddr)
-	if listenIP != nil {
+	if listenIP == nil {
 		return nil, fmt.Errorf("failed to parse %s", f.DNS.ListenAddr)
 	}
 

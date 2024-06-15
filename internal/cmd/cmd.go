@@ -3,15 +3,22 @@ package cmd
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"runtime"
+	"time"
 
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/ameshkov/snirelay/internal/config"
 	"github.com/ameshkov/snirelay/internal/dnssrv"
+	"github.com/ameshkov/snirelay/internal/metrics"
 	"github.com/ameshkov/snirelay/internal/relay"
 	"github.com/ameshkov/snirelay/internal/version"
 	goFlags "github.com/jessevdk/go-flags"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Main is the entry point of the program.
@@ -59,6 +66,12 @@ func Main() {
 		check("start dns server", err)
 	}
 
+	metrics.SetUpGauge(version.Version(), "", "", runtime.Version())
+
+	if cfg.Prometheus != nil {
+		go serveMetrics(cfg.Prometheus.Addr, cfg.Prometheus.Port)
+	}
+
 	sigHandler := newSignalHandler(relaySrv)
 	os.Exit(sigHandler.handle())
 }
@@ -69,5 +82,28 @@ func check(operationName string, err error) {
 		log.Error("failed to %s: %v", operationName, err)
 
 		os.Exit(1)
+	}
+}
+
+// serveMetrics starts
+func serveMetrics(listenAddr string, port uint16) {
+	metricsAddr := netutil.JoinHostPort(listenAddr, port)
+	log.Info("Starting metrics at %s", metricsAddr)
+
+	mux := &http.ServeMux{}
+	mux.Handle("/metrics", promhttp.Handler())
+	mux.HandleFunc("/health-check", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "OK")
+	})
+
+	srv := &http.Server{
+		Addr:         metricsAddr,
+		Handler:      mux,
+		ReadTimeout:  time.Minute,
+		WriteTimeout: time.Minute,
+	}
+
+	if err := srv.ListenAndServe(); err != nil {
+		log.Fatalf("Metrics failed to listen to %s: %v", metricsAddr, err)
 	}
 }

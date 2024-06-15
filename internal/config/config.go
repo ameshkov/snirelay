@@ -15,11 +15,14 @@ const actionRelay = "relay"
 type File struct {
 	// DNS is the DNS server section of the configuration file. If not
 	// specified, the DNS server will not be started.
-	DNS *DNS `yaml:"dnssrv"`
+	DNS *DNS `yaml:"dns"`
 
 	// Relay is the SNI relay server section of the configuration file. Must be
 	// specified.
 	Relay *Relay `yaml:"relay"`
+
+	// Prometheus
+	Prometheus *Prometheus `yaml:"prometheus"`
 
 	// DomainRules is the map that controls what the snirelay does with the
 	// domains. The key of this map is a wildcard and the value is the action.
@@ -34,6 +37,15 @@ type File struct {
 	// queries and re-route traffic to the relay server. HTTPS queries will be
 	// suppressed in this case.
 	DomainRules map[string]string `yaml:"domain-rules"`
+}
+
+// Prometheus represents the prometheus configuration.
+type Prometheus struct {
+	// Addr is the address where prometheus metrics are exposed.
+	Addr string `yaml:"addr"`
+
+	// Port is the port where prometheus metrics will be exposed.
+	Port uint16 `yaml:"port"`
 }
 
 // Load loads and validates configuration from the specified file.
