@@ -2,7 +2,7 @@
 // is done in the cmd package.
 package main
 
-import "bit.int.agrd.dev/relay/internal/cmd"
+import "github.com/ameshkov/snirelay/internal/cmd"
 
 func main() {
 	cmd.Main()

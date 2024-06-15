@@ -7,46 +7,66 @@ import (
 	"net/url"
 	"testing"
 
-	"bit.int.agrd.dev/relay/internal/relay"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/ameshkov/snirelay/internal/relay"
 	"github.com/stretchr/testify/require"
 	"github.com/things-go/go-socks5"
 )
 
+// TODO(ameshkov): Run a local HTTP bin instead of using remote.
 func TestNewServer(t *testing.T) {
 	testCases := []struct {
-		name           string
-		url            string
-		plainHTTP      bool
-		proxy          bool
-		expectedStatus int
+		name            string
+		url             string
+		redirectDomains []string
+		plainHTTP       bool
+		proxy           bool
+		expectedStatus  int
+		expectedNetErr  bool
 	}{{
-		name:           "plain_http_status_200",
-		url:            "http://httpbin.agrd.workers.dev/status/200",
-		plainHTTP:      true,
-		expectedStatus: http.StatusOK,
+		name:            "plain_http_status_200",
+		url:             "http://httpbin.agrd.dev/status/200",
+		redirectDomains: []string{"httpbin.agrd.dev"},
+		plainHTTP:       true,
+		expectedStatus:  http.StatusOK,
 	}, {
-		name:           "plain_http_status_200_via_proxy",
-		url:            "http://httpbin.agrd.workers.dev/status/200",
-		plainHTTP:      true,
-		proxy:          true,
-		expectedStatus: http.StatusOK,
+		name:            "plain_http_status_200_via_proxy",
+		url:             "http://httpbin.agrd.dev/status/200",
+		redirectDomains: []string{"httpbin.agrd.dev"},
+		plainHTTP:       true,
+		proxy:           true,
+		expectedStatus:  http.StatusOK,
 	}, {
-		name:           "https_status_200",
-		url:            "https://httpbin.agrd.workers.dev/status/200",
-		plainHTTP:      false,
-		expectedStatus: http.StatusOK,
+		name:            "https_status_200",
+		url:             "https://httpbin.agrd.dev/status/200",
+		redirectDomains: []string{"httpbin.agrd.dev"},
+		plainHTTP:       false,
+		expectedStatus:  http.StatusOK,
 	}, {
-		name:           "https_status_200_via_proxy",
-		url:            "https://httpbin.agrd.workers.dev/status/200",
-		plainHTTP:      false,
-		proxy:          true,
-		expectedStatus: http.StatusOK,
+		name:            "https_status_200_via_proxy",
+		url:             "https://httpbin.agrd.dev/status/200",
+		redirectDomains: []string{"*.agrd.dev"},
+		plainHTTP:       false,
+		proxy:           true,
+		expectedStatus:  http.StatusOK,
+	}, {
+		name:            "plain_http_not_redirected",
+		url:             "http://httpbin.agrd.dev/status/200",
+		redirectDomains: []string{"example.org"},
+		plainHTTP:       true,
+		expectedNetErr:  true,
+	}, {
+		name:            "https_not_redirected",
+		url:             "https://httpbin.agrd.dev/status/200",
+		redirectDomains: []string{"example.net"},
+		plainHTTP:       false,
+		expectedNetErr:  true,
 	}}
 
-	// It is required for some tests.
-	socksListener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
+	// SOCKS proxy is required for tests that use Socks.
+	socksListener, socksErr := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, socksErr)
 	defer log.OnCloserError(socksListener, log.DEBUG)
 
 	socksServer := socks5.NewServer()
@@ -64,7 +84,15 @@ func TestNewServer(t *testing.T) {
 				}
 			}
 
-			r, err := relay.NewServer("127.0.0.1", 0, 0, proxyURL, nil)
+			cfg := &relay.Config{
+				ListenAddr:      netutil.IPv4Localhost(),
+				ListenPort:      0,
+				ListenPortTLS:   0,
+				ProxyURL:        proxyURL,
+				RedirectDomains: tc.redirectDomains,
+			}
+
+			r, err := relay.NewServer(cfg)
 			require.NoError(t, err)
 
 			err = r.Start()
@@ -91,6 +119,13 @@ func TestNewServer(t *testing.T) {
 			require.NoError(t, err)
 
 			resp, err := client.Do(req)
+
+			if tc.expectedNetErr {
+				require.Error(t, err)
+
+				return
+			}
+
 			require.NoError(t, err)
 
 			defer log.OnCloserError(resp.Body, log.ERROR)

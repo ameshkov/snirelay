@@ -1,24 +1,28 @@
-// Package relay implements all the relay logic.
+// Package relay implements all the SNI relay logic.
 package relay
 
 import (
 	"fmt"
 	"io"
 	"net"
-	"net/url"
+	"runtime/debug"
 	"sync"
 	"time"
 
-	"github.com/AdguardTeam/golibs/netutil"
-
-	"golang.org/x/net/proxy"
+	"github.com/IGLOU-EU/go-wildcard"
 
 	"github.com/AdguardTeam/golibs/errors"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/netutil"
+	"github.com/ameshkov/snirelay/internal/metrics"
+	"github.com/getsentry/sentry-go"
+	"golang.org/x/net/proxy"
 )
 
 const (
 	// readTimeout is the default timeout for a connection read deadline.
+	//
+	// TODO(ameshkov): Consider making configurable.
 	readTimeout = 60 * time.Second
 
 	// remotePortPlain is the port the proxy will be connecting for plain
@@ -33,61 +37,51 @@ const (
 // Server implements all the relay logic, listens for incoming connections and
 // redirects them to the proper server.
 type Server struct {
-	started bool
-	wg      *sync.WaitGroup
+	redirectDomains []string
 
-	dialer        proxy.Dialer
-	resolverCache map[string][]net.IP
-
+	dialer          proxy.Dialer
 	listenAddrPlain *net.TCPAddr
 	listenerPlain   net.Listener
-
-	listenAddrTLS *net.TCPAddr
-	listenerTLS   net.Listener
+	plainAddr       net.Addr
+	listenAddrTLS   *net.TCPAddr
+	listenerTLS     net.Listener
+	tlsAddr         net.Addr
 
 	// mu protects started and listeners.
 	mu *sync.Mutex
+
+	// wg keeps track of the active connections.
+	wg *sync.WaitGroup
+
+	started bool
 }
 
 // type check.
 var _ io.Closer = (*Server)(nil)
 
 // NewServer creates a new instance of *Server.
-func NewServer(
-	listenAddr string,
-	listenPort int,
-	listenPortTLS int,
-	proxyURL *url.URL,
-	resolverCache map[string][]net.IP,
-) (s *Server, err error) {
+func NewServer(cfg *Config) (s *Server, err error) {
 	s = &Server{
-		wg:            &sync.WaitGroup{},
-		mu:            &sync.Mutex{},
-		resolverCache: resolverCache,
+		redirectDomains: cfg.RedirectDomains,
+		wg:              &sync.WaitGroup{},
+		mu:              &sync.Mutex{},
 	}
 
-	s.dialer = proxy.Direct
-	if proxyURL != nil {
-		s.dialer, err = proxy.FromURL(proxyURL, s.dialer)
-
+	if cfg.ProxyURL != nil {
+		s.dialer, err = proxy.FromURL(cfg.ProxyURL, s.dialer)
 		if err != nil {
 			return nil, fmt.Errorf("invalid proxy: %w", err)
 		}
 	}
 
-	listenIP := net.ParseIP(listenAddr)
-	if listenIP == nil {
-		return nil, fmt.Errorf("invalid listen IP: %s", listenAddr)
-	}
-
 	s.listenAddrPlain = &net.TCPAddr{
-		IP:   listenIP,
-		Port: listenPort,
+		IP:   cfg.ListenAddr.AsSlice(),
+		Port: int(cfg.ListenPort),
 	}
 
 	s.listenAddrTLS = &net.TCPAddr{
-		IP:   listenIP,
-		Port: listenPortTLS,
+		IP:   cfg.ListenAddr.AsSlice(),
+		Port: int(cfg.ListenPortTLS),
 	}
 
 	return s, nil
@@ -102,7 +96,7 @@ func (s *Server) AddrTLS() (addr net.Addr) {
 		return nil
 	}
 
-	return s.listenerTLS.Addr()
+	return s.tlsAddr
 }
 
 // AddrPlain returns the address where the server listens for plain traffic.
@@ -114,10 +108,10 @@ func (s *Server) AddrPlain() (addr net.Addr) {
 		return nil
 	}
 
-	return s.listenerPlain.Addr()
+	return s.plainAddr
 }
 
-// Start starts the server.
+// Start starts the relay server.
 func (s *Server) Start() (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -132,105 +126,183 @@ func (s *Server) Start() (err error) {
 	if err != nil {
 		return fmt.Errorf("failed to serve plain HTTP: %w", err)
 	}
+	s.plainAddr = s.listenerPlain.Addr()
 
 	s.listenerTLS, err = net.ListenTCP("tcp", s.listenAddrTLS)
 	if err != nil {
 		return fmt.Errorf("failed to serve TLS: %w", err)
 	}
+	s.tlsAddr = s.listenerTLS.Addr()
 
 	s.wg.Add(2)
 
-	go func() {
-		defer s.wg.Done()
-
-		// TODO(ameshkov): Handle error here.
-		_ = s.acceptLoop(s.listenerPlain, true)
-	}()
-
-	go func() {
-		defer s.wg.Done()
-
-		// TODO(ameshkov): Handle error here.
-		_ = s.acceptLoop(s.listenerTLS, false)
-	}()
+	go s.acceptLoop(s.listenerPlain, true)
+	go s.acceptLoop(s.listenerTLS, false)
 
 	s.started = true
 
-	log.Info("relay: started")
+	log.Info("relay: listening for plain HTTP on %s", s.listenerPlain.Addr())
+	log.Info("relay: listening for TLS on %s", s.listenerTLS.Addr())
 
 	return nil
 }
 
 // acceptLoop runs the infinite accept loop for TLS or HTTP traffic.
-func (s *Server) acceptLoop(l net.Listener, plainHTTP bool) (err error) {
+func (s *Server) acceptLoop(l net.Listener, plainHTTP bool) {
+	defer s.wg.Done()
+
 	for {
-		var conn net.Conn
-		conn, err = l.Accept()
+		conn, err := l.Accept()
 
 		if errors.Is(err, net.ErrClosed) {
 			log.Info("relay: exiting listener loop as it has been closed")
 
-			return err
+			return
 		}
 
 		if err == nil {
-			go func() {
-				hErr := s.handleConn(conn, plainHTTP)
-				if hErr != nil {
-					log.Debug("failed to handle conn: %v", hErr)
-				}
-			}()
+			go s.handleConn(conn, plainHTTP)
+		} else {
+			// TODO(ameshkov): There is a risk of a busy loop, consider fixing.
+			log.Debug("relay: error accepting conn: %v", err)
 		}
+
 	}
 }
 
-// getRemoteAddr checks if there is already a mapping for the specified server
-// name and returns the IP address if so.  Returns the same server name when
-// there's no mapping.  Appends the correct port depending on what protocol is
-// in use.
-func (s *Server) getRemoteAddr(serverName string, plainHTTP bool) (remoteAddr string) {
-	remoteAddr = serverName
+// handlePanicAndRecover is a helper function that recovers from panics and
+// reports them to Sentry.
+func handlePanicAndRecover() {
+	if v := recover(); v != nil {
+		log.Error(
+			"panic encountered in the relay server, recovered: %s\n%s",
+			v,
+			string(debug.Stack()),
+		)
 
-	if v, ok := s.resolverCache[serverName]; ok {
-		remoteAddr = v[0].String()
+		// TODO(ameshkov): refactor and add scope and tags to sentry event.
+		sentry.CaptureMessage(fmt.Sprintf("panic encountered in the relay server: %v", v))
 	}
+}
 
+// handleConn handles incoming connection.
+func (s *Server) handleConn(conn net.Conn, plainHTTP bool) {
+	defer handlePanicAndRecover()
+
+	hErr := s.handleRelayConn(conn, plainHTTP)
+	if hErr != nil {
+		log.Error("relay: failed to handle conn: %v", hErr)
+
+		sentry.CaptureException(hErr)
+	}
+}
+
+// remoteAddrForServerName creates a remote address string depending on the
+// protocol.
+func remoteAddrForServerName(serverName string, plainHTTP bool) (remoteAddr string) {
 	if plainHTTP {
-		return netutil.JoinHostPort(remoteAddr, remotePortPlain)
+		return netutil.JoinHostPort(serverName, remotePortPlain)
 	}
 
-	return netutil.JoinHostPort(remoteAddr, remotePortTLS)
+	return netutil.JoinHostPort(serverName, remotePortTLS)
 }
 
-// handleConn handles the network connection, peeks SNI and tunnels traffic.
-func (s *Server) handleConn(conn net.Conn, plainHTTP bool) (err error) {
+// handleRelayConn handles the network connection, peeks SNI and tunnels
+// traffic.
+func (s *Server) handleRelayConn(conn net.Conn, plainHTTP bool) (err error) {
 	defer log.OnCloserError(conn, log.DEBUG)
 
 	log.Debug("relay: accepting new connection from %s", conn.RemoteAddr())
 
 	if err = conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
-		return fmt.Errorf("relay: failed to set read deadline: %w", err)
+		return fmt.Errorf("failed to set read deadline: %w", err)
 	}
 
-	serverName, clientReader, err := peekServerName(conn, plainHTTP)
+	serverName, connReader, err := peekServerName(conn, plainHTTP)
 	if err != nil {
-		return fmt.Errorf("relay: failed to peek server name: %w", err)
+		return fmt.Errorf("failed to peek server name: %w", err)
 	}
 
-	log.Debug("relay: server name is %s", serverName)
+	log.Debug("relay: peeked server name is %q", serverName)
 
 	if err = conn.SetReadDeadline(time.Time{}); err != nil {
-		return fmt.Errorf("relay: failed to remove read deadline: %w", err)
+		return fmt.Errorf("failed to remove read deadline: %w", err)
 	}
 
-	remoteAddr := s.getRemoteAddr(serverName, plainHTTP)
+	if !s.canAccept(serverName) {
+		log.Debug("relay: relaying %s is not allowed", serverName)
+
+		return nil
+	}
+
+	if serverName == s.plainAddr.String() ||
+		serverName == s.tlsAddr.String() {
+		log.Debug("relay: direct connection to the relay IP, closing it")
+
+		return nil
+	}
+
+	remoteAddr := remoteAddrForServerName(serverName, plainHTTP)
 	log.Debug("relay: connecting to %s", remoteAddr)
 
-	var remoteConn net.Conn
-	remoteConn, err = s.dialer.Dial("tcp", remoteAddr)
-	if err != nil {
-		return fmt.Errorf("relay: failed to connect to %s: %w", remoteAddr, err)
+	return s.handleConnToRemoteServer(conn, connReader, remoteAddr)
+}
+
+// connect opens a connection to the specified remote address.  By default, it
+// tries to bind to the same network interface it received the source connection
+// from if this is a public IP.  The reason for that is that the server may
+// have multiple IP addresses, and it may be required to control which of them
+// is used.
+func (s *Server) connect(localAddr net.Addr, remoteAddr string) (conn net.Conn, err error) {
+	if s.dialer != nil {
+		// If a proxy dialer is set it does not matter what network interface
+		// is used.
+		return s.dialer.Dial("tcp", remoteAddr)
 	}
+
+	// snirelay only works with TCP so there is no need to check for other
+	// types of addresses.
+	localIP := localAddr.(*net.TCPAddr).IP
+
+	var bindAddr *net.TCPAddr
+	if !localIP.IsPrivate() &&
+		!localIP.IsLoopback() &&
+		!localIP.IsUnspecified() {
+		bindAddr = &net.TCPAddr{
+			IP: localIP,
+		}
+	}
+
+	dialer := &net.Dialer{
+		LocalAddr: bindAddr,
+	}
+
+	return dialer.Dial("tcp", remoteAddr)
+}
+
+// handleConnToRemoteServer connects to the remote address remoteAddr and then
+// tunnels traffic from the client connection conn.
+func (s *Server) handleConnToRemoteServer(
+	conn net.Conn,
+	connReader io.Reader,
+	remoteAddr string,
+) (err error) {
+	var remoteConn net.Conn
+	remoteConn, err = s.connect(conn.LocalAddr(), remoteAddr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to %s: %w", remoteAddr, err)
+	}
+
+	metrics.ConnectionsTotal.WithLabelValues(remoteAddr).Inc()
+	defer func() {
+		metrics.ConnectionsTotal.WithLabelValues(remoteAddr).Dec()
+
+		// Make sure the remote connection is closed.
+		log.OnCloserError(remoteConn, log.DEBUG)
+	}()
+
+	clientAddr := netutil.NetAddrToAddrPort(conn.RemoteAddr())
+	metrics.RelayUsersCountUpdate(clientAddr.Addr())
 
 	startTime := time.Now()
 
@@ -248,15 +320,16 @@ func (s *Server) handleConn(conn net.Conn, plainHTTP bool) (err error) {
 
 		bytesReceived = s.tunnel(conn, remoteConn)
 	}()
+
 	go func() {
 		defer wg.Done()
 
-		bytesSent = s.tunnel(remoteConn, clientReader)
+		bytesSent = s.tunnel(remoteConn, connReader)
 	}()
 
 	wg.Wait()
 
-	elapsed := time.Now().Sub(startTime)
+	elapsed := time.Since(startTime)
 
 	log.Debug(
 		"relay: finished tunneling to %s. received %d, sent %d, elapsed: %v",
@@ -265,6 +338,9 @@ func (s *Server) handleConn(conn net.Conn, plainHTTP bool) (err error) {
 		bytesSent,
 		elapsed,
 	)
+
+	metrics.BytesSentTotal.WithLabelValues(remoteAddr).Add(float64(bytesSent))
+	metrics.BytesReceivedTotal.WithLabelValues(remoteAddr).Add(float64(bytesReceived))
 
 	return nil
 }
@@ -291,7 +367,6 @@ func (s *Server) tunnel(dst net.Conn, src io.Reader) (written int64) {
 	}()
 
 	written, err := io.Copy(dst, src)
-
 	if err != nil {
 		log.Debug("relay: finished copying due to %v", err)
 	}
@@ -320,4 +395,15 @@ func (s *Server) Close() (err error) {
 	log.Info("relay: closed")
 
 	return errors.Join(plainErr, tlsErr)
+}
+
+// canAccept checks if relay can accept connection to this hostname.
+func (s *Server) canAccept(hostname string) (ok bool) {
+	for _, pattern := range s.redirectDomains {
+		if wildcard.MatchSimple(pattern, hostname) {
+			return true
+		}
+	}
+
+	return false
 }

@@ -11,18 +11,8 @@ import (
 
 // Options represents command-line arguments.
 type Options struct {
-	// ListenAddr is the address the tool will be listening to.
-	ListenAddr string `yaml:"listen" short:"l" long:"listen" description:"Address the tool will be listening to (required)." value-name:"<IP>" required:"true"`
-
-	// Ports is the ports for both plain HTTP and TLS traffic. Passed as
-	// plainPort:tlsPort
-	Ports string `yaml:"ports" short:"p" long:"ports" description:"Port for accepting plain HTTP (required)." value-name:"<PLAIN_PORT:TLS_PORT>" required:"true"`
-
-	// ProxyURL is the URL of an upstream proxy.
-	ProxyURL string `yaml:"proxy" long:"proxy" description:"Proxy URL (optional)." value-name:"[protocol://username:password@]host[:port]"`
-
-	// SNIMappingsPath is a path to the file with SNI mappings.
-	SNIMappingsPath string `yaml:"sni-mappings-path" long:"sni-mappings-path" description:"Path to the file with SNI mappings (optional)."`
+	// ConfigPath specifies path to the configuration file.
+	ConfigPath string `short:"c" long:"config-path" description:"Path to the config file." required:"true"`
 
 	// Verbose defines whether we should write the DEBUG-level log or not.
 	Verbose bool `yaml:"verbose" short:"v" long:"verbose" description:"Verbose output (optional)." optional:"yes" optional-value:"true"`

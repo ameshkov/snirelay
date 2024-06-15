@@ -5,8 +5,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"bit.int.agrd.dev/relay/internal/relay"
 	"github.com/AdguardTeam/golibs/log"
+	"github.com/ameshkov/snirelay/internal/relay"
 )
 
 // signalHandler processes incoming signals and shuts services down.

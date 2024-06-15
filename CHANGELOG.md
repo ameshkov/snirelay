@@ -11,6 +11,16 @@ adheres to [Semantic Versioning][semver].
 
 ## [Unreleased]
 
+### Added
+
+* Added configuration file.
+* Added DNS server implementation.
+* Added prometheus metrics.
+
+### Removed
+
+* Removed `sni-mappings-path` functionality.
+
 [unreleased]: https://github.com/ameshkov/snirelay/compare/v1.0.0...HEAD
 
 ## [1.0.0] - 2024-03-25

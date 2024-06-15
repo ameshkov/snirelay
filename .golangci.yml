@@ -47,3 +47,6 @@ issues:
     # We don't need it since the SNI proxy should be able to tunnel TLS
     # connections of any version.
     - G402
+    # gosec: Use of weak random number generator
+    # We only use it in tests.
+    - G404
