@@ -6,9 +6,13 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"time"
 
+	"github.com/AdguardTeam/dnsproxy/upstream"
 	"github.com/ameshkov/snirelay/internal/dnssrv"
 )
+
+const defaultUpstreamTimeout = 10 * time.Second
 
 // DNS represents the DNS server section of the configuration file.
 type DNS struct {
@@ -73,6 +77,13 @@ func (f *File) ToDNSConfig() (dnsCfg *dnssrv.Config, err error) {
 
 	dnsCfg = &dnssrv.Config{
 		RateLimit: f.DNS.RateLimit,
+	}
+
+	dnsCfg.Upstream, err = upstream.AddressToUpstream(f.DNS.UpstreamAddr, &upstream.Options{
+		Timeout: defaultUpstreamTimeout,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("invalid upstream address: %w", err)
 	}
 
 	for _, ip := range f.DNS.RateLimitAllowlist {

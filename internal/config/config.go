@@ -82,6 +82,10 @@ func validate(cfg *File) (err error) {
 	}
 
 	if cfg.DNS != nil {
+		if cfg.DNS.UpstreamAddr == "" {
+			return fmt.Errorf("dns upstream address is required")
+		}
+
 		if cfg.DNS.ListenAddr == "" {
 			return fmt.Errorf("dnssrv.listen-addr is required")
 		}

@@ -158,6 +158,8 @@ gocurl --connect-to="example.org:443:127.0.0.1:9080" -I http://example.org/
 # Relay for HTTPS:
 gocurl --connect-to="example.org:443:127.0.0.1:9443" -I https://example.org/
 
+# Or you can specify the DNS server:
+gocurl --dns-servers "127.0.0.1:5353" -I https://example.org/
 ```
 
 [dnslookup]: https://github.com/ameshkov/dnslookup

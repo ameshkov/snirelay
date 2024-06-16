@@ -22,6 +22,7 @@ import (
 )
 
 const tlsServerName = "dns.example.com"
+const relayUpstreamAddr = "tls://dns.google"
 
 func TestNew(t *testing.T) {
 	testCases := []struct {
@@ -60,6 +61,12 @@ func TestNew(t *testing.T) {
 		redirectDomains:  []string{"example.com"},
 		expectedRedirect: false,
 		proto:            proxy.ProtoUDP,
+	}, {
+		name:             "no-redirect-tls",
+		reqDomain:        "example.org",
+		redirectDomains:  []string{"example.com"},
+		expectedRedirect: false,
+		proto:            proxy.ProtoTLS,
 	}}
 
 	for _, tc := range testCases {
@@ -72,9 +79,7 @@ func TestNew(t *testing.T) {
 			roots := x509.NewCertPool()
 			roots.AppendCertsFromPEM(caPem)
 
-			u, err := upstream.AddressToUpstream("8.8.8.8", &upstream.Options{
-				RootCAs: roots,
-			})
+			u, err := upstream.AddressToUpstream(relayUpstreamAddr, &upstream.Options{})
 			require.NoError(t, err)
 
 			cfg := &dnssrv.Config{
@@ -122,7 +127,7 @@ func TestNew(t *testing.T) {
 
 			testUpstream, err := upstream.AddressToUpstream(
 				upstreamAddr,
-				&upstream.Options{InsecureSkipVerify: true},
+				&upstream.Options{RootCAs: roots},
 			)
 			require.NoError(t, err)
 
@@ -135,10 +140,9 @@ func TestNew(t *testing.T) {
 				resp, exchErr := testUpstream.Exchange(req)
 				require.NoError(t, exchErr)
 				require.NotNil(t, resp)
+				require.Equal(t, dns.RcodeSuccess, resp.Rcode)
 
 				if tc.expectedRedirect {
-					require.Equal(t, resp.Rcode, dns.RcodeSuccess)
-
 					if reqType == dns.TypeA {
 						require.Len(t, resp.Answer, 1)
 						a, ok := resp.Answer[0].(*dns.A)
@@ -154,6 +158,7 @@ func TestNew(t *testing.T) {
 							ips = append(ips, a.(*dns.A).A.String())
 						}
 
+						require.NotEmpty(t, ips)
 						require.NotContains(t, ips, redirectIpv4)
 					}
 				}
@@ -186,6 +191,7 @@ func newTLSConfig(t *testing.T) (conf *tls.Config, certPem []byte) {
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		DNSNames:              []string{tlsServerName},
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
 	}
 
 	derBytes, err := x509.CreateCertificate(

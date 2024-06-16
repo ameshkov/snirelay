@@ -11,7 +11,15 @@ adheres to [Semantic Versioning][semver].
 
 ## [Unreleased]
 
-[unreleased]: https://github.com/ameshkov/snirelay/compare/v1.1.0...HEAD
+[unreleased]: https://github.com/ameshkov/snirelay/compare/v1.1.1...HEAD
+
+## [1.1.1] - 2024-06-16
+
+### Fixed
+
+* Fixed proxying non-relayed DNS queries.
+
+[1.1.1]: https://github.com/ameshkov/snirelay/releases/tag/v1.1.1
 
 ## [1.1.0] - 2024-06-16
 

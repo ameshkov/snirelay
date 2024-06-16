@@ -9,6 +9,7 @@ import (
 
 	"github.com/AdguardTeam/dnsproxy/proxy"
 	"github.com/AdguardTeam/dnsproxy/upstream"
+	"github.com/AdguardTeam/golibs/container"
 	"github.com/AdguardTeam/golibs/log"
 	"github.com/IGLOU-EU/go-wildcard"
 	"github.com/ameshkov/snirelay/internal/metrics"
@@ -17,6 +18,7 @@ import (
 
 const (
 	defaultTTL             = 300
+	defaultCacheSizeBytes  = 16 * 1024
 	ratelimitSubnetLenIPv4 = 24
 	ratelimitSubnetLenIPv6 = 56
 )
@@ -38,10 +40,16 @@ func New(config *Config) (srv *Server, err error) {
 	proxyCfg.RatelimitSubnetLenIPv6 = ratelimitSubnetLenIPv6
 	proxyCfg.RatelimitWhitelist = config.RateLimitAllowlist
 
+	proxyCfg.CacheEnabled = true
+	proxyCfg.CacheSizeBytes = defaultCacheSizeBytes
+
 	proxyCfg.TLSConfig = config.TLSConfig
 
 	proxyCfg.UpstreamConfig = &proxy.UpstreamConfig{
-		Upstreams: []upstream.Upstream{config.Upstream},
+		Upstreams:                []upstream.Upstream{config.Upstream},
+		DomainReservedUpstreams:  map[string][]upstream.Upstream{},
+		SpecifiedDomainUpstreams: map[string][]upstream.Upstream{},
+		SubdomainExclusions:      container.NewMapSet[string](),
 	}
 
 	if config.TCPAddr != nil {
