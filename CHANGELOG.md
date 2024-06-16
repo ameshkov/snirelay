@@ -11,6 +11,10 @@ adheres to [Semantic Versioning][semver].
 
 ## [Unreleased]
 
+[unreleased]: https://github.com/ameshkov/snirelay/compare/v1.1.0...HEAD
+
+## [1.1.0] - 2024-06-16
+
 ### Added
 
 * Added configuration file.
@@ -21,7 +25,7 @@ adheres to [Semantic Versioning][semver].
 
 * Removed `sni-mappings-path` functionality.
 
-[unreleased]: https://github.com/ameshkov/snirelay/compare/v1.0.0...HEAD
+[1.1.0]: https://github.com/ameshkov/snirelay/releases/tag/v1.1.0
 
 ## [1.0.0] - 2024-03-25
 
