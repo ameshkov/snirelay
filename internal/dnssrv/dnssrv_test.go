@@ -22,7 +22,7 @@ import (
 )
 
 const tlsServerName = "dns.example.com"
-const relayUpstreamAddr = "tls://dns.google"
+const relayUpstreamAddr = "8.8.8.8"
 
 func TestNew(t *testing.T) {
 	testCases := []struct {
@@ -57,7 +57,7 @@ func TestNew(t *testing.T) {
 		proto:            proxy.ProtoQUIC,
 	}, {
 		name:             "no-redirect",
-		reqDomain:        "example.org",
+		reqDomain:        "example.net",
 		redirectDomains:  []string{"example.com"},
 		expectedRedirect: false,
 		proto:            proxy.ProtoUDP,
@@ -132,9 +132,14 @@ func TestNew(t *testing.T) {
 			require.NoError(t, err)
 
 			for _, reqType := range []uint16{dns.TypeA, dns.TypeAAAA, dns.TypeHTTPS} {
-				req := &dns.Msg{}
-				req.Question = []dns.Question{
-					{Name: dns.Fqdn(tc.reqDomain), Qtype: reqType, Qclass: dns.ClassINET},
+				req := &dns.Msg{
+					MsgHdr: dns.MsgHdr{
+						Id:               dns.Id(),
+						RecursionDesired: true,
+					},
+					Question: []dns.Question{
+						{Name: dns.Fqdn(tc.reqDomain), Qtype: reqType, Qclass: dns.ClassINET},
+					},
 				}
 
 				resp, exchErr := testUpstream.Exchange(req)
