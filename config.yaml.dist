@@ -1,0 +1,98 @@
+# DNS server section of the configuration file. Optional, if not specified the
+# DNS server will not be started.
+dns:
+  # listen-addr is the address where the DNS server will listen to incoming
+  # requests. Must be specified.
+  listen-addr: "0.0.0.0"
+
+  # redirect-addr-v4 is the IPv4 address where the DNS server will re-route
+  # type=A queries for domains listed in domain-rules. Must be specified.
+  redirect-addr-v4: "127.0.0.1"
+
+  # redirect-addr-v6 is the IPv4 address where the DNS server will re-route
+  # type=AAAA queries for domains listed in domain-rules. If not specified,
+  # the DNS server will respond with empty NOERROR to AAAA queries.
+  redirect-addr-v6: "::"
+
+  # plain-port is the port for plain DNS server. Optional, if not specified,
+  # the plain DNS server will not be started.
+  plain-port: 53
+
+  # tls-port is the port for DNS-over-TLS server. Optional, if not specified,
+  # the plain DNS-over-TLS server will not be started.
+  tls-port: 853
+
+  # https-port is the port for DNS-over-HTTPS server. Optional, if not
+  # specified, the plain DNS-over-HTTPS server will not be started. It is
+  # usually supposed to be 443, but this way it will clash with the SNI relay
+  # HTTPS port.
+  https-port: 8443
+
+  # quic-port is the port for DNS-over-QUIC server. Optional, if not
+  # specified, the plain DNS-over-QUIC server will not be started.
+  quic-port: 853
+
+  # upstream-addr is the address of the upstream DNS server. This server will
+  # be used for queries that shouldn't be re-routed. Must be specified.
+  upstream-addr: "8.8.8.8:53"
+
+  # RateLimit is the maximum number of requests per second for a plain DNS
+  # server. If 0 or not specified, there will be no rate limit.
+  rate-limit: 50
+
+  # rate-limit-allowlist is a list of IP addresses excluded from rate limiting.
+  rate-limit-allowlist:
+    - "127.0.0.1"
+
+  # tls-cert-path is the path to the TLS certificate. It is only required if
+  # one of the following properties are specified: TLSPort, HTTPSPort,
+  # QUICPort.
+  tls-cert-path: "./example.crt"
+
+  # tls-key-path is the path to the TLS private key. It is only required if
+  # one of the following properties are specified: TLSPort, HTTPSPort,
+  # QUICPort.
+  tls-key-path: "./example.key"
+
+# Relay is the SNI relay server section of the configuration file. Must be
+# specified.
+relay:
+  # listen-addr is the address where the Relay server will listen to incoming
+  # connections.
+  listen-addr: "0.0.0.0"
+
+  # http-port is the port where relay will expect to receive plain HTTP
+  # connections.
+  http-port: 80
+
+  # https-port is the port where relay will expect to receive HTTPS
+  # connections.
+  https-port: 443
+
+  # proxy-url is the optional port for upstream connections by the relay.
+  # Format of the URL: [protocol://username:password@]host[:port]
+  proxy-url: ""
+
+# domain-rules is the map that controls what the snirelay does with the
+# domains. The key of this map is a wildcard and the value is the action.
+# Must be specified.
+#
+# If the domain is not specified in domain-rules, DNS queries for it will
+# be simply proxied to the upstream DNS server and no re-routing occurs.
+# Connections to the relay server for domains that are not listed will not
+# be accepted.
+#
+# If the action is "relay" then the DNS server will respond to A/AAAA
+# queries and re-route traffic to the relay server. HTTPS queries will be
+# suppressed in this case.
+domain-rules:
+  # Re-route all domains.
+  "*": "relay"
+
+# prometheus is a section for prometheus configuration.
+prometheus:
+  # addr is the address where prometheus metrics are exposed.
+  addr: "0.0.0.0"
+
+  # port where prometheus metrics are exposed.
+  port: 8123

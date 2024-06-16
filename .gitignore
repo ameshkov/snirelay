@@ -4,4 +4,8 @@
 /build
 /relay
 /snirelay
-/sni_mapping.csv
+
+# For local testing.
+/config.yaml
+/example.crt
+/example.key

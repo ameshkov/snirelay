@@ -31,8 +31,28 @@ COPY --from=builder /app/snirelay /
 # Copy the CA certificates from the certs image.
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
-# Expose listen ports.
-EXPOSE 8443/tcp
-EXPOSE 8080/tcp
+# Exposing ports.
 
-ENTRYPOINT ["/snirelay", "-l", "0.0.0.0", "-p", "8080:8443"]
+# Plain DNS.
+EXPOSE 53/udp
+EXPOSE 53/tcp
+
+# DNS-over-TLS.
+EXPOSE 853/tcp
+
+# DNS-over-QUIC.
+EXPOSE 853/udp
+
+# DNS-over-HTTPS.
+EXPOSE 8443/tcp
+
+# SNI relay for plain HTTP.
+EXPOSE 80/tcp
+
+# SNI relay for HTTPS.
+EXPOSE 443/tcp
+
+# Prometheus metrics endpoint.
+EXPOSE 8123/tcp
+
+ENTRYPOINT ["/snirelay", "-c", "/app/config.yaml"]

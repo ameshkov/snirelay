@@ -20,14 +20,12 @@ func peekServerName(
 ) (serverName string, newReader io.Reader, err error) {
 	if plainHTTP {
 		serverName, newReader, err = peekHTTPHost(reader)
-
 		if err != nil {
 			return "", nil, err
 		}
 	} else {
 		var clientHello *tls.ClientHelloInfo
 		clientHello, newReader, err = peekClientHello(reader)
-
 		if err != nil {
 			return "", nil, err
 		}
@@ -62,18 +60,23 @@ func peekClientHello(
 	peekedBytes := new(bytes.Buffer)
 	hello, err = readClientHello(io.TeeReader(reader, peekedBytes))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("sniproxy: failed to read ClientHello: %w", err)
 	}
 
 	return hello, io.MultiReader(peekedBytes, reader), nil
 }
 
 // readClientHello reads client hello information from the specified reader.
+//
+// #nosec G402 -- Ignore the TLS MinVersion, the code is only for parsing.
+//
+// TODO(ameshkov): This method is very ineffective, consider parsing.
 func readClientHello(reader io.Reader) (hello *tls.ClientHelloInfo, err error) {
 	err = tls.Server(readOnlyConn{reader: reader}, &tls.Config{
 		GetConfigForClient: func(argHello *tls.ClientHelloInfo) (*tls.Config, error) {
 			hello = new(tls.ClientHelloInfo)
 			*hello = *argHello
+
 			return nil, nil
 		},
 	}).Handshake()
