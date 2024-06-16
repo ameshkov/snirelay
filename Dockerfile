@@ -40,11 +40,11 @@ EXPOSE 53/tcp
 # DNS-over-TLS.
 EXPOSE 853/tcp
 
+# DNS-over-QUIC.
+EXPOSE 853/udp
+
 # DNS-over-HTTPS.
 EXPOSE 8443/tcp
-
-# DNS-over-QUIC.
-EXPOSE 853/tcp
 
 # SNI relay for plain HTTP.
 EXPOSE 80/tcp
