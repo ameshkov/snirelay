@@ -3,7 +3,7 @@
 dns:
   # listen-addr is the address where the DNS server will listen to incoming
   # requests. Must be specified.
-  listen-addr: "127.0.0.1"
+  listen-addr: "0.0.0.0"
 
   # redirect-addr-v4 is the IPv4 address where the DNS server will re-route
   # type=A queries for domains listed in domain-rules. Must be specified.
@@ -16,19 +16,21 @@ dns:
 
   # plain-port is the port for plain DNS server. Optional, if not specified,
   # the plain DNS server will not be started.
-  plain-port: 5353
+  plain-port: 53
 
   # tls-port is the port for DNS-over-TLS server. Optional, if not specified,
   # the plain DNS-over-TLS server will not be started.
-  tls-port: 8853
+  tls-port: 853
 
   # https-port is the port for DNS-over-HTTPS server. Optional, if not
-  # specified, the plain DNS-over-HTTPS server will not be started.
+  # specified, the plain DNS-over-HTTPS server will not be started. It is
+  # usually supposed to be 443, but this way it will clash with the SNI relay
+  # HTTPS port.
   https-port: 8443
 
   # quic-port is the port for DNS-over-QUIC server. Optional, if not
   # specified, the plain DNS-over-QUIC server will not be started.
-  quic-port: 8853
+  quic-port: 853
 
   # upstream-addr is the address of the upstream DNS server. This server will
   # be used for queries that shouldn't be re-routed. Must be specified.
@@ -57,15 +59,15 @@ dns:
 relay:
   # listen-addr is the address where the Relay server will listen to incoming
   # connections.
-  listen-addr: "127.0.0.1"
+  listen-addr: "0.0.0.0"
 
   # http-port is the port where relay will expect to receive plain HTTP
   # connections.
-  http-port: 9080
+  http-port: 80
 
   # https-port is the port where relay will expect to receive HTTPS
   # connections.
-  https-port: 9443
+  https-port: 443
 
   # proxy-url is the optional port for upstream connections by the relay.
   # Format of the URL: [protocol://username:password@]host[:port]
@@ -90,7 +92,7 @@ domain-rules:
 # prometheus is a section for prometheus configuration.
 prometheus:
   # addr is the address where prometheus metrics are exposed.
-  addr: "127.0.0.1"
+  addr: "0.0.0.0"
 
   # port where prometheus metrics are exposed.
   port: 8123

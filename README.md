@@ -13,6 +13,91 @@ Why would you need it? For instance, if you operate a DNS server, and you want
 to relay some domains to an intermediate server (effectively, change your IP
 address).
 
+## How to use it
+
+1. Get the version for you OS/arch from the [Releases][releases] page. If you
+   prefer Docker, you can find it below.
+2. Create a configuration file. Read the comments in
+   [./config.yaml.dist][configyaml] to learn about configuration.
+3. Run `snirelay`:
+    ```shell
+    snirelay -c /path/to/config.yaml
+    ```
+
+   You may need to run it with `sudo` since it needs to use privileged ports.
+
+[releases]: https://github.com/ameshkov/snirelay/releases
+
+[configyaml]: ./config.yaml.dist
+
+### Usage
+
+```shell
+Usage:
+  snirelay [OPTIONS]
+
+Application Options:
+  -c, --config-path= Path to the config file.
+  -v, --verbose      Verbose output (optional).
+
+Help Options:
+  -h, --help         Show this help message
+```
+
+## Docker
+
+The docker image [is available][dockerregistry]. In order to use it, you need to
+supply a configuration file, and you may need to also supply the TLS cert/key
+if you're going to use encrypted DNS.
+
+The image exposes a number of ports that needs to be mapped to the host machine
+depending on what parts of the functionality you're using.
+
+* Port `53`: plain DNS server, usually needs to be mapped to port `53` of the
+  host machine.
+* Port `853/tcp`: DNS-over-TLS server, usually needs to be mapped to port `853`
+  of the host machine.
+* Port `853/udp`: DNS-over-QUIC server, usually needs to be mapped to port
+  `853` of the host machine.
+* Port `8443/tcp`: DNS-over-HTTPS server. **Do not expose to `443` as this port
+  is required by the SNI relay server**. Try a different port and don't forget
+  to use it in the server address.
+* Port `80/tcp`: SNI relay port for plain HTTP connections. Map it to port
+  `80` of the host machine.
+* Port `443/tcp`: SNI relay port for HTTPS connections. Map it to port `443` of
+  the host machine.
+* Port `8123/tcp`: Prometheus metrics endpoint. Map it if you use prometheus.
+
+So imagine we have a configuration file `config.yaml` and the TLS configuration
+files in the same directory in `example.crt` and `example.key`. In this case the
+configuration section should look like this:
+
+```yaml
+dns:
+  # ... omitted other ...
+  tls-cert-path: "/app/example.crt"
+  tls-key-path: "/app/example.key"
+  # ... omitted other ...
+```
+
+And then run it like this:
+
+```shell
+docker run -d --name snirelay \
+  -p 53:53/tcp -p 53:53/udp \
+  -p 853:853/tcp -p 853:853/udp \
+  -p 8443:8443/tcp \
+  -p 8123:8123/tcp \
+  -p 80:80/tcp -p 443:443/tcp \
+  -v $(pwd)/config.yaml:/app/config.yaml \
+  -v $(pwd)/example.crt:/app/example.crt \
+  -v $(pwd)/example.key:/app/example.key \
+  ghcr.io/ameshkov/snirelay
+
+```
+
+[dockerregistry]: https://github.com/ameshkov/snirelay/pkgs/container/snirelay
+
 ## How to build
 
 ```shell
@@ -78,40 +163,3 @@ gocurl --connect-to="example.org:443:127.0.0.1:9443" -I https://example.org/
 [dnslookup]: https://github.com/ameshkov/dnslookup
 
 [gocurl]: https://github.com/ameshkov/gocurl
-
-## Docker
-
-The docker image [is available][dockerregistry]. `snirelay` listens to the
-ports `8080` and `8443` inside the container, so you don't have to specify the
-listen address and ports, other arguments are available.
-
-Run `snirelay` as a background service in server mode and expose on the host's
-ports `80` and `443` (tcp):
-
-```shell
-docker run -d --name snirelay \
-  -p 80:8443/tcp -p 443:8443/tcp \
-  ghcr.io/ameshkov/snirelay
-
-```
-
-[dockerregistry]: https://github.com/ameshkov/snirelay/pkgs/container/snirelay
-
-## Usage
-
-```text
-Usage:
-  snirelay [OPTIONS]
-
-Application Options:
-  -l, --listen=<IP>                                         Address the tool will be listening to (required).
-  -p, --ports=<PLAIN_PORT:TLS_PORT>                         Port for accepting plain HTTP (required).
-      --proxy=[protocol://username:password@]host[:port]    Proxy URL (optional).
-      --sni-mappings-path=                                  Path to the file with SNI mappings (optional).
-  -v, --verbose                                             Verbose output (optional).
-
-Help Options:
-  -h, --help                                                Show this help message
-
-```
-
